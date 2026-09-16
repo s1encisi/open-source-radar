@@ -1,0 +1,48 @@
+{
+  "_WARNING": "结构模板，不是真实项目；所有事实必须从实际读取的源填入，不能直接发布。",
+  "project_id": "github:REPLACE_NUMERIC_ID",
+  "provider": "github",
+  "name": "REPLACE_FROM_REPOSITORY",
+  "canonical_url": "REPLACE_FROM_REPOSITORY",
+  "category": "developer_tools",
+  "license_status": "unknown",
+  "license_spdx": null,
+  "archived": null,
+  "checked_at": "REPLACE_WITH_ACTUAL_OBSERVATION_TIME",
+  "stars": null,
+  "language": null,
+  "evidence_ids": [],
+  "claims": [
+    {
+      "kind": "fact",
+      "text": "项目解决的问题与核心用途，来自实际读取的官方资料",
+      "evidence_ids": []
+    },
+    {
+      "kind": "inference",
+      "text": "值得关注的差异以及比较边界，明确是分析",
+      "evidence_ids": []
+    }
+  ],
+  "relevance": "关联已知背景；不擅自宣称用户熟练度",
+  "caveats": "许可、数据、硬件、付费API、部署和维护限制；未公开则注明",
+  "scores": {
+    "interest": {
+      "value": 0,
+      "reason": "待证据评估；0不是未知的默认得分"
+    },
+    "novelty": {
+      "value": 0,
+      "reason": "待证据评估；0不是未知的默认得分"
+    },
+    "relevance": {
+      "value": 0,
+      "reason": "待证据评估；0不是未知的默认得分"
+    },
+    "health": {
+      "value": 0,
+      "reason": "待证据评估；0不是未知的默认得分"
+    }
+  },
+  "opportunities": []
+}

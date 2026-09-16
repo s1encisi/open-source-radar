@@ -1,0 +1,28 @@
+{
+  "_WARNING": "结构模板，不是实际issue。无真实issue时不填入opportunities；建议性任务写recommendation。",
+  "number": null,
+  "title": "REPLACE_FROM_ISSUE",
+  "url": "REPLACE_FROM_ISSUE",
+  "state": "unknown",
+  "checked_at": "REPLACE_WITH_ACTUAL_OBSERVATION_TIME",
+  "assignees": null,
+  "claim_status": "unknown",
+  "linked_pr": "unknown",
+  "checks": {
+    "comments": false,
+    "timeline": false,
+    "pr_search": false,
+    "contributing": false,
+    "ai_policy_search": false
+  },
+  "scope": "unknown",
+  "ai_policy": "unknown",
+  "skill_match": "unknown",
+  "user_capability_evidence": [],
+  "evidence_ids": [],
+  "task": "实际issue内容；不自行杜撰需求",
+  "first_step": "只读阅读/比较/复现方案，不实际执行仓库代码",
+  "acceptance": "来自维护者或明确标为建议的可验证验收标准",
+  "skills_needed": "完成这一个任务所需技能，不罗列整个仓库全部技术栈",
+  "skill_gaps": "明确已确认、未确认和需学习部分"
+}

@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "preferred_name": null,
+  "facts": [],
+  "capability_policy": "研究背景说明领域熟悉度，不自动证明任何语言/框架/开源贡献的熟练度。",
+  "github_username": null,
+  "public_portfolio_repositories": [],
+  "skills": [
+    {
+      "name": "Python",
+      "level": "unverified",
+      "evidence": []
+    },
+    {
+      "name": "Git",
+      "level": "unverified",
+      "evidence": []
+    },
+    {
+      "name": "pytest",
+      "level": "unverified",
+      "evidence": []
+    },
+    {
+      "name": "JavaScript/TypeScript",
+      "level": "unverified",
+      "evidence": []
+    },
+    {
+      "name": "React",
+      "level": "unverified",
+      "evidence": []
+    },
+    {
+      "name": "C++",
+      "level": "unverified",
+      "evidence": []
+    },
+    {
+      "name": "Rust",
+      "level": "unverified",
+      "evidence": []
+    }
+  ],
+  "contribution_history": [],
+  "available_hours_per_week": null,
+  "hardware": null,
+  "preferences_inferred_by_agent": [],
+  "personal_data_export": "Do not send this file to third-party search, models or repositories."
+}

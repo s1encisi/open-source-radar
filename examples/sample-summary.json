@@ -1,0 +1,18 @@
+{
+  "idempotent_publish": true,
+  "network_requests": 0,
+  "observations": 2,
+  "opportunity_states": [
+    "candidate_for_review",
+    "in_progress"
+  ],
+  "projects": 1,
+  "published_runs": 2,
+  "report_recovery": true,
+  "reports": [
+    "reports\\20260916T131710593559-3dc061\\daily.md",
+    "reports\\20260916T131710640558-b27177\\daily.md"
+  ],
+  "star_delta": 4,
+  "synthetic": true
+}

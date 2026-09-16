@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "run_id": "REPLACED_BY_START",
+  "report_date": "REPLACED_BY_START",
+  "generated_at": "REPLACED_BY_START",
+  "report_timezone": "REPLACED_BY_START",
+  "utc_offset": "REPLACED_BY_START",
+  "coverage": [],
+  "evidence": [],
+  "projects": [],
+  "metrics": {
+    "elapsed_seconds": null,
+    "search_calls": null,
+    "primary_page_reads": null,
+    "github_api_calls": null,
+    "input_tokens": null,
+    "output_tokens": null,
+    "retries": null,
+    "failed_requests": null,
+    "p50_request_ms": null,
+    "p95_request_ms": null,
+    "cache_hits": null,
+    "estimated_cost": null
+  },
+  "limitations": []
+}

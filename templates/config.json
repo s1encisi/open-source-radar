@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "version": "1.0.0",
+  "language": "zh-CN",
+  "defaults_are_agent_proposals_not_user_confirmations": true,
+  "timezone": "host_local",
+  "schedule_proposal": {
+    "frequency": "daily",
+    "time": "08:00",
+    "enabled": false
+  },
+  "targets": {
+    "discovery_candidates_min": 40,
+    "discovery_candidates_max": 80,
+    "deep_project_reviews_min": 10,
+    "deep_project_reviews_max": 15,
+    "issue_leads_min": 8,
+    "issue_leads_max": 15,
+    "deep_contribution_reviews_min": 3,
+    "deep_contribution_reviews_max": 5,
+    "minimum_source_families": 5,
+    "minimum_categories": 5
+  },
+  "budgets": {
+    "search_queries_soft": 24,
+    "primary_page_reads_soft": 60,
+    "github_requests_max": 120,
+    "parallel_workers_max": 2,
+    "initial_context_chars_target": 14000,
+    "batch_size_projects": 5,
+    "same_project_cooldown_days": 7
+  },
+  "category_targets": {
+    "ai_agents": 0.2,
+    "science_environment": 0.2,
+    "developer_tools": 0.15,
+    "web_ui": 0.15,
+    "games_creative": 0.1,
+    "data_infrastructure": 0.1,
+    "systems_security": 0.05,
+    "other": 0.05
+  },
+  "novelty_policy": {
+    "minimum_exploration_share": 0.2,
+    "github_only_forbidden": true,
+    "no_fixed_star_threshold": true
+  },
+  "verification": {
+    "dynamic_ttl_hours": 24,
+    "source_policy_review_days": 30,
+    "library_maintenance_weekdays": [
+      0
+    ]
+  },
+  "retention": {
+    "automatic_deletion": false,
+    "raw_evidence": "append-only",
+    "reports": "append-only"
+  },
+  "output_formats": [
+    "Markdown",
+    "JSON",
+    "SQLite"
+  ],
+  "network_failures": "publish_degraded_report_with_gaps",
+  "external_write_authorization": false
+}

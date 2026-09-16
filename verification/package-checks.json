@@ -1,0 +1,25 @@
+{
+  "observed_at": "2026-09-14T18:50:18.221783+00:00",
+  "python": "3.13.5",
+  "unit_tests_passed": 60,
+  "python_source_compilation": {
+    "scripts": 3,
+    "passed": true
+  },
+  "json_templates": {
+    "count": 5,
+    "passed": true
+  },
+  "skill_agent_yaml_valid": true,
+  "empty_pipeline": {
+    "passed": true,
+    "real_projects": 0,
+    "network_attempted": false,
+    "report_recovery_passed": true
+  },
+  "resource_warning_in_final_test_log": false,
+  "online_collector_test": "failed_URLError",
+  "installed_on_user_machine": false,
+  "scheduled_task_created": false,
+  "windows_installer_executed": false
+}

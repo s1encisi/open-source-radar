@@ -1,0 +1,40 @@
+{
+  "observed_at": "2026-09-16T05:15:39+00:00",
+  "api_version": "2026-03-10",
+  "requests": 5,
+  "elapsed_seconds": 4.05,
+  "rate_limited": false,
+  "complete": true,
+  "responses": [
+    {
+      "url": "https://api.github.com/repos/psf/requests",
+      "status": 200,
+      "latency_ms": 719.0,
+      "sha256_raw": "8a929e7b7f74eae729c9c91eb6308a46fd9729e7243a2ab2a89c5a2f40791c98"
+    },
+    {
+      "url": "https://api.github.com/repos/psf/requests/readme",
+      "status": 200,
+      "latency_ms": 625.0,
+      "sha256_raw": "3290c1634503b57785b6e68397c80e62cf86fab33c82f37f5dbc82b41348a468"
+    },
+    {
+      "url": "https://api.github.com/repos/psf/requests/license",
+      "status": 200,
+      "latency_ms": 687.0,
+      "sha256_raw": "7db94723dfe863c194a37fb706eb13fad21fcbaf42c52902e1256d9ea6313b0f"
+    },
+    {
+      "url": "https://api.github.com/repos/psf/requests/community/profile",
+      "status": 200,
+      "latency_ms": 1282.0,
+      "sha256_raw": "56ad37ff3b3208fdff87429219db6d356acd55488dc5e68951f8a886f973b8c7"
+    },
+    {
+      "url": "https://api.github.com/repos/psf/requests/releases?per_page=3",
+      "status": 200,
+      "latency_ms": 734.0,
+      "sha256_raw": "acf9e1122b7ce76d3a3831f35a7ecc5610cc5a9a520410a5bf7dcd4eea69407c"
+    }
+  ]
+}

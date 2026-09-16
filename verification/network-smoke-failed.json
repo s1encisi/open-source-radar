@@ -1,0 +1,27 @@
+{
+  "observed_at": "2026-09-14T18:42:59+00:00",
+  "untrusted_external_content": true,
+  "api_version": "2026-03-10",
+  "requests": 1,
+  "elapsed_seconds": 0.0,
+  "rate_limited": false,
+  "result": {
+    "repository": {
+      "url": "https://api.github.com/repos/psf/requests",
+      "observed_at": "2026-09-14T18:42:59+00:00",
+      "status": "error",
+      "reason": "URLError",
+      "data": null
+    },
+    "complete": false
+  },
+  "responses": [
+    {
+      "url": "https://api.github.com/repos/psf/requests",
+      "observed_at": "2026-09-14T18:42:59+00:00",
+      "status": "error",
+      "reason": "URLError",
+      "data": null
+    }
+  ]
+}

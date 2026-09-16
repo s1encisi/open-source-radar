@@ -1,0 +1,6 @@
+interface:
+  display_name: "开源项目与贡献机会雷达"
+  short_description: "跨社区发现真实开源项目，核验贡献线索并维护每日增量记忆"
+  default_prompt: "使用 $open-source-radar 执行本次开源项目发现、贡献机会核验与增量日报。"
+policy:
+  allow_implicit_invocation: false
