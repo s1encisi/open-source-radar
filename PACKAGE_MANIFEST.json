@@ -74,8 +74,8 @@
     },
     {
       "path": "docs/PORTFOLIO.zh-CN.md",
-      "bytes": 2619,
-      "sha256": "7af3252206f4b38a8238748ff7a94342e347af3ce4c9ca92ba7866a9dd85e593"
+      "bytes": 2618,
+      "sha256": "fcef037d9b375f546aa6859a86ab5c7dbd8eea42671a3a6241a27f9df7c4de3e"
     },
     {
       "path": "examples/demo.py",

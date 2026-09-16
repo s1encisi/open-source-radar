@@ -2,7 +2,8 @@
 
 ## 可直接使用的项目描述
 
-**Open Source Radar｜基于证据的开源项目发现与贡献机会分析工具**  
+**Open Source Radar｜基于证据的开源项目发现与贡献机会分析工具**
+
 技术栈：Python、SQLite、GitHub REST API、Codex Skill、GitHub Actions
 
 - 构建开源项目调研与贡献机会核验流程，将来源、观测时间、原始摘录和 SHA-256 组织为结构化证据，支持中文 Markdown 日报、JSON 数据和 SQLite 本地记忆。
