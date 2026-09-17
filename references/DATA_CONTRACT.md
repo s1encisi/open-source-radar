@@ -84,3 +84,27 @@ feedback不自动改profile。长期画像变更需要专门的、用户明确�
 ## 本包实现范围
 
 GitHub提供标准库只读采集器；GitLab、Gitee、Codeberg、Hugging Face、ModelScope及发现社区通过Codex实际具备的浏览/连接器能力读取，统一填入合同。本包不伪称为每个平台实现了未经测试的API适配器。没有浏览能力时，跨社区覆盖会降级，必须报告。
+
+
+## 1.0.1：统一决策快照与退出码
+
+首次发布在取得数据库写事务后固定一次 `evaluated_at`，校验和所有机会分类共用该时刻。`audit.json` 与 `data.json` 新增相同的只读 `evaluation` 对象，其中包含 `evaluated_at`、`rules_version` 和 `decisions`。每项决策保存 `project_id`、`number`、`status`、`reason_codes`、`reasons` 与 `evidence_ids`；正文和候选计数直接使用这份快照，不在渲染时重新判断。
+
+`data.json` 中的 `evaluation` 是派生输出，不是填写草稿的输入。重复发布使用原始 `runs/<run_id>/draft.json`：内容与已提交记录相同即可返回 `already_published`，即使已超过 TTL，也不会刷新历史判断。不同内容仍被拒绝。首次发布仍强制检查时效；合成数据与固定合同保护继续生效。
+
+旧的 schema 1 数据库无需迁移。没有决策快照的旧记录仍导出已存储的原始报告、payload 和审计；不会补写新决策或升级历史结论。规则版本与数据表版本、工作区配置版本分别管理。
+
+类型或嵌套结构错误在业务规则之前返回，例如 `$.projects[0].canonical_url: expected str`。有效类型不等于事实已核实。证据主体绑定仍属于后续工作。
+
+采集器在文件和终端结果中共同返回 `transport_complete`、`partial`、`incomplete_reasons` 与 `non_200`。全部 HTTP 200 也可能因为分页、搜索结果或正文截断而 `partial=true`；原因附带采集结果路径。远端正文中的同名字段不会被解释为采集器标志。
+
+采集退出码：`0` 表示本次请求范围内没有已知传输或完整性缺口；`1` 表示已保存不完整结果（包括 HTTP 失败、预算耗尽和截断）；`2` 表示参数或执行错误。调用方不能因退出码 1 丢弃全部结果，也不能把某个可选端点缺失扩展成所有检查都失败。完整性自动约束草稿检查项的转换程序尚未实现。
+
+
+## 1.1.0：捕获绑定和运行配置
+
+当前 GitHub 正式发布使用 [PIPELINE.md](PIPELINE.md) 中的注册采集流程。证据新增 `subject`（project_id/可选 issue_number）和 `source`（capture_id/pointer/length/可选 projection）。发布前验证 SQLite 登记哈希和原始捕获中的字段，不能只给任意摘录补上正确主体标签。
+
+`evaluation.effective_policy` 保存本次生效的 TTL、累计请求预算、上下文上限与配置哈希。每次 start 冻结一份策略。数据表基础 schema 1 保持不变，工作流扩展有独立版本；历史已发布记录仍按原记录导出，新的非夹具 GitHub 草稿必须有注册来源与完成的语义审阅。
+
+第一阶段只为 GitHub 实现确定性字段转换。其他平台仍依赖宿主只读能力，不得声称它们经过同样的捕获绑定验收。

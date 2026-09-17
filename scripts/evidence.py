@@ -22,6 +22,9 @@ def pointer(value, path):
 
 
 def main():
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--file", type=Path, required=True)
     p.add_argument("--id", required=True)

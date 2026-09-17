@@ -84,7 +84,7 @@ python -B scripts/radar.py --workspace ../radar-workspace start
 python -B scripts/radar.py --workspace ../radar-workspace context
 ```
 
-`start` 返回本次草稿的真实路径。按[数据合同](references/DATA_CONTRACT.md)补齐来源后，依次执行 `validate` 与 `publish`。初始化前可编辑 `templates/profile.json` 填写自愿提供的兴趣和技能；初始化后配置受到哈希保护，不应直接改写已运行工作区的固定合同。
+`start` 返回本次运行编号。GitHub 项目按[采集与审阅流程](references/PIPELINE.md)执行 `collect → prepare → review → validate → publish`，确定性字段从原始响应抽取，Agent 只补充语义判断。初始化前可编辑 `templates/profile.json` 填写自愿提供的兴趣和技能；初始化后配置受到哈希保护，不应直接改写已运行工作区的固定合同。
 
 ### Codex Skill
 
@@ -99,7 +99,7 @@ Windows 可显式执行 `./Install.ps1`；其他安装方式见 [INSTALL_IN_CODE
 ## 项目结构
 
 ```text
-scripts/           状态引擎、GitHub 采集器、证据转换
+scripts/           状态引擎、采集编排、来源绑定、配置与请求台账
 tests/             校验、状态持久化、采集边界的离线测试
 examples/          可运行的双次观测演示与生成的样例报告
 docs/              架构说明、简历描述和面试演示路径
@@ -110,6 +110,8 @@ SKILL.md           Agent 执行入口
 ```
 
 ## 验证范围
+
+1.1.0 加入原始捕获绑定、自动字段提取、语义审阅模板和运行级预算。完整命令见 [采集与审阅流程](references/PIPELINE.md)，阶段结果见 [真实验收记录](docs/ACCEPTANCE.md)。
 
 离线测试和演示用于验证确定性的代码行为；实时采集结果、测试环境及尚未验证项见 [VERIFICATION.md](VERIFICATION.md)。CI 配置覆盖 Windows、Linux 与 Python 3.10–3.13，实际运行结果以页首徽章为准。
 

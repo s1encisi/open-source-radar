@@ -18,8 +18,11 @@ import sys
 import tempfile
 from datetime import datetime, timezone, timedelta
 from urllib.parse import urlsplit
+from draft_validation import structure_errors
+import runtime_policy
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
+RULES_VERSION = "2026-09-17.2"
 SCHEMA_VERSION = 1
 CATEGORIES = {"ai_agents", "science_environment", "developer_tools", "web_ui",
               "games_creative", "data_infrastructure", "systems_security", "other"}
@@ -85,6 +88,8 @@ def fresh(value, hours=24, at=None) -> bool:
 
 
 def valid_url(value) -> bool:
+    if not isinstance(value, str):
+        return False
     try:
         u = urlsplit(value)
         return (u.scheme == "https" and bool(u.hostname) and not u.username
@@ -162,6 +167,8 @@ def initialize(workspace: Path):
         con.execute("INSERT INTO meta VALUES('schema_version',?)", (str(SCHEMA_VERSION),))
         for name in ("mission.md", "profile.json", "config.json"):
             con.execute("INSERT INTO meta VALUES(?,?)", ("hash:" + name, digest((workspace / name).read_bytes())))
+        import workflow_store
+        workflow_store.install(con)
     return {"status": "initialized", "workspace": str(workspace)}
 
 
@@ -173,6 +180,7 @@ def start(workspace: Path):
         locked_policy(workspace, con)
         con.execute("INSERT INTO runs(run_id,report_date,started_at,updated_at,phase) VALUES(?,?,?,?,?)",
                     (run_id, local.date().isoformat(), stamp(), stamp(), "discover"))
+        con.execute("INSERT INTO meta VALUES(?,?)", ("policy:" + run_id, dumps(runtime_policy.resolve(workspace))))
     directory = workspace / "runs" / run_id
     directory.mkdir(parents=True, exist_ok=False)
     draft = load(ROOT / "templates" / "draft.json")
@@ -191,74 +199,96 @@ def evidence_reference(evidence, ids, roles=None, primary=False, hours=None, at=
                and (hours is None or fresh(e.get("observed_at"), hours, at)) for e in selected)
 
 
-def opportunity_gate(project, opportunity, evidence, at=None) -> tuple[str, list[str]]:
-    """Eligibility for investigation, NEVER a promise of ability or PR acceptance."""
+def opportunity_decision(project, opportunity, evidence, at=None, ttl_hours=24):
+    """Evaluate observed state using one clock and only the evidence it needs."""
+    at = at or now()
     reasons = []
-    if project.get("archived") is True or opportunity.get("state") == "closed":
-        return "excluded", ["仓库已归档或 issue 已关闭"]
-    if opportunity.get("linked_pr") == "merged":
-        return "excluded", ["已有合并 PR，需先查证问题是否仍存在"]
-    if opportunity.get("assignees") or opportunity.get("claim_status") == "claimed" or opportunity.get("linked_pr") == "open":
-        return "in_progress", ["已有认领、受理人或进行中的 PR"]
+    def result(status, entries):
+        return {"status": status, "reason_codes": [code for code, _ in entries],
+                "reasons": [text for _, text in entries]}
+
+    if not fresh(project.get("checked_at"), ttl_hours, at):
+        reasons.append(("repository_stale", f"仓库核验不在最近{ttl_hours:g}小时"))
+    if not evidence_reference(evidence, project.get("evidence_ids"), {"repository"}, True, ttl_hours, at):
+        reasons.append(("repository_evidence_stale", "缺少新鲜的仓库原始证据"))
+    if reasons:
+        return result("needs_verification", reasons)
+    if project.get("archived") is True:
+        return result("excluded", [("repository_archived", "本次新鲜证据显示仓库已归档")])
+    if not fresh(opportunity.get("checked_at"), ttl_hours, at):
+        reasons.append(("issue_stale", "issue上次观测已过期或时间非法；当前状态待重新核验"))
+    if not evidence_reference(evidence, opportunity.get("evidence_ids"), {"issue"}, True, ttl_hours, at):
+        reasons.append(("issue_evidence_stale", "缺少新鲜的issue原始证据"))
+    if reasons:
+        return result("needs_verification", reasons)
+    if opportunity.get("state") == "closed":
+        return result("excluded", [("issue_closed", "本次新鲜证据显示issue已关闭")])
+    if opportunity.get("linked_pr") in {"open", "merged"}:
+        if not evidence_reference(evidence, opportunity.get("evidence_ids"), {"pull_requests"}, True, ttl_hours, at):
+            return result("needs_verification", [("pr_evidence_stale", "关联PR证据缺失或过期；当前状态待重新核验")])
+        if opportunity["linked_pr"] == "merged":
+            return result("excluded", [("pr_merged", "已有合并 PR，需先查证问题是否仍存在")])
+        return result("in_progress", [("pr_open", "本次新鲜证据显示有进行中的 PR")])
+    if opportunity.get("assignees"):
+        return result("in_progress", [("issue_assigned", "本次新鲜证据显示已有受理人")])
+    if opportunity.get("claim_status") == "claimed":
+        if not evidence_reference(evidence, opportunity.get("evidence_ids"), {"comments"}, True, ttl_hours, at):
+            return result("needs_verification", [("claim_evidence_stale", "认领评论证据缺失或过期；当前状态待重新核验")])
+        return result("in_progress", [("issue_claimed", "本次新鲜评论证据显示已有认领")])
     if project.get("license_status") != "open_source_verified":
-        reasons.append("尚未核实为开源软件许可")
-    if not fresh(project.get("checked_at"), 24, at):
-        reasons.append("仓库核验不在最近24小时")
-    if not evidence_reference(evidence, project.get("evidence_ids"), {"repository"}, True, 24, at):
-        reasons.append("缺少新鲜的仓库原始证据")
+        reasons.append(("license_unverified", "尚未核实为开源软件许可"))
     if opportunity.get("state") != "open" or project.get("archived") is not False:
-        reasons.append("issue/仓库当前状态不完整")
+        reasons.append(("state_unknown", "issue/仓库当前状态不完整"))
     if opportunity.get("assignees") != [] or opportunity.get("claim_status") != "none_observed":
-        reasons.append("未完成认领情况检查")
+        reasons.append(("ownership_unknown", "未完成认领情况检查"))
     if opportunity.get("linked_pr") != "none_observed":
-        reasons.append("关联PR检查不完整")
-    if not fresh(opportunity.get("checked_at"), 24, at):
-        reasons.append("issue核验超过24小时或时间非法")
+        reasons.append(("pr_unknown", "关联PR检查不完整"))
     if not all(opportunity.get("checks", {}).get(k) is True for k in
                ("comments", "timeline", "pr_search", "contributing", "ai_policy_search")):
-        reasons.append("贡献规则、评论、时间线或PR检查尚未完成")
-    if not all(evidence_reference(evidence, opportunity.get("evidence_ids"), roles, True, 24, at)
+        reasons.append(("checks_incomplete", "贡献规则、评论、时间线或PR检查尚未完成"))
+    if not all(evidence_reference(evidence, opportunity.get("evidence_ids"), roles, True, ttl_hours, at)
                for roles in ({"issue"}, {"comments"}, {"timeline"}, {"pull_requests"})):
-        reasons.append("缺少新鲜的issue/评论/时间线/PR原始证据")
+        reasons.append(("dynamic_evidence_incomplete", "缺少新鲜的issue/评论/时间线/PR原始证据"))
     if not evidence_reference(evidence, opportunity.get("evidence_ids"), {"contributing"}, True):
-        reasons.append("贡献流程没有证据")
+        reasons.append(("contributing_missing", "贡献流程没有证据"))
     if opportunity.get("scope") != "clear":
-        reasons.append("任务边界或验收条件不明确")
+        reasons.append(("scope_unknown", "任务边界或验收条件不明确"))
     if opportunity.get("ai_policy") not in {"allowed", "conditional", "not_found_after_search", "disallowed"}:
-        reasons.append("AI贡献政策尚未检查")
+        reasons.append(("ai_policy_unknown", "AI贡献政策尚未检查"))
     if opportunity.get("skill_match") not in {"verified", "potential", "unknown"}:
-        reasons.append("技能匹配状态不明")
+        reasons.append(("skill_match_unknown", "技能匹配状态不明"))
     # Unknown ability remains explicitly conditional even when the issue is available.
-    return ("needs_verification", reasons) if reasons else ("candidate_for_review", [
-        "仅在本次已检查范围内未发现占用；行动前重新核验",
-        "技能匹配不是能力认证，也不保证维护者接收",
-        "项目禁止AI生成贡献，禁止自动写代码" if opportunity.get("ai_policy") == "disallowed"
-        else "须遵循项目AI政策；未知政策不等于允许"])
+    return result("needs_verification", reasons) if reasons else result("candidate_for_review", [
+        ("candidate_conditional", "仅在本次已检查范围内未发现占用；行动前重新核验"),
+        ("ability_not_certified", "技能匹配不是能力认证，也不保证维护者接收"),
+        ("follow_ai_policy", "项目禁止AI生成贡献，禁止自动写代码" if opportunity.get("ai_policy") == "disallowed"
+         else "须遵循项目AI政策；未知政策不等于允许")])
 
 
-def validate(data: dict, *, allow_fixture=False, at=None) -> tuple[list[str], list[str]]:
-    errors, warnings = [], []
+def opportunity_gate(project, opportunity, evidence, at=None, ttl_hours=24) -> tuple[str, list[str]]:
+    decision = opportunity_decision(project, opportunity, evidence, at, ttl_hours)
+    return decision["status"], decision["reasons"]
+
+
+def evaluate(data: dict, *, allow_fixture=False, at=None, ttl_hours=24):
+    """Validate and compute one decision per opportunity at a fixed instant."""
+    errors, warnings, decisions = structure_errors(data), [], []
     at = at or now()
-    if not isinstance(data, dict):
-        return ["Root must be an object"], []
-    for key in ("run_id", "report_date", "generated_at", "report_timezone", "utc_offset", "coverage", "evidence", "projects", "metrics", "limitations"):
-        if key not in data:
-            errors.append("Missing root key: " + key)
     if errors:
-        return errors, warnings
+        return errors, warnings, decisions
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", str(data["run_id"])):
         errors.append("Invalid run_id")
     try:
         datetime.strptime(data["report_date"], "%Y-%m-%d")
     except (ValueError, TypeError):
         errors.append("Invalid report_date")
-    if not fresh(data["generated_at"], 24, at):
+    if not fresh(data["generated_at"], ttl_hours, at):
         errors.append("generated_at must be timezone-aware, current and not in the future")
     for key in ("coverage", "evidence", "projects", "limitations"):
         if not isinstance(data[key], list):
             errors.append(key + " must be a list")
     if errors:
-        return errors, warnings
+        return errors, warnings, decisions
     if len(data["projects"]) > 100:
         errors.append("At most 100 deeply assessed project records per run; split batches")
     evidence = {}
@@ -309,7 +339,7 @@ def validate(data: dict, *, allow_fixture=False, at=None) -> tuple[list[str], li
         if p["provider"] == "github":
             if not re.fullmatch(r"github:\d+", pid):
                 errors.append(pid + ": use immutable GitHub numeric repository ID")
-            if urlsplit(p["canonical_url"]).hostname != "github.com":
+            if not valid_url(p["canonical_url"]) or urlsplit(p["canonical_url"]).hostname != "github.com":
                 errors.append(pid + ": GitHub provider URL mismatch")
         if p["category"] not in CATEGORIES or p["license_status"] not in LICENSES:
             errors.append(pid + ": invalid category/license class")
@@ -317,12 +347,12 @@ def validate(data: dict, *, allow_fixture=False, at=None) -> tuple[list[str], li
             errors.append(pid + ": archived must be boolean/null")
         if p["stars"] is not None and (type(p["stars"]) is not int or p["stars"] < 0):
             errors.append(pid + ": stars must be nonnegative integer/null")
-        if not fresh(p["checked_at"], 24, at):
-            errors.append(pid + ": selected project must be freshly checked within 24h")
+        if not fresh(p["checked_at"], ttl_hours, at):
+            errors.append(pid + ": selected project is outside the configured TTL")
         refs = p["evidence_ids"]
         if not isinstance(refs, list) or any(i not in evidence for i in refs):
             errors.append(pid + ": unknown/malformed evidence references")
-        if not evidence_reference(evidence, refs, {"repository"}, True, 24, at):
+        if not evidence_reference(evidence, refs, {"repository"}, True, ttl_hours, at):
             errors.append(pid + ": primary repository evidence missing/stale")
         if p["license_status"] == "open_source_verified":
             if not p["license_spdx"] or not evidence_reference(evidence, refs, {"license"}, True):
@@ -372,9 +402,12 @@ def validate(data: dict, *, allow_fixture=False, at=None) -> tuple[list[str], li
                 errors.append(pid + ": issue references unknown evidence")
             if o.get("skill_match") == "verified" and not o.get("user_capability_evidence"):
                 errors.append(pid + ": verified skill match requires explicit user evidence")
-            gate, reasons = opportunity_gate(p, o, evidence, at)
-            if gate == "needs_verification":
-                warnings.append(pid + "#" + str(o.get("number")) + ": " + "; ".join(reasons))
+            decision = opportunity_decision(p, o, evidence, at, ttl_hours)
+            decision.update(project_id=pid, number=o["number"],
+                            evidence_ids=list(dict.fromkeys(p["evidence_ids"] + refs)))
+            decisions.append(decision)
+            if decision["status"] == "needs_verification":
+                warnings.append(pid + "#" + str(o["number"]) + ": " + "; ".join(decision["reasons"]))
     for c in data["coverage"]:
         if not isinstance(c, dict) or c.get("status") not in COVERAGE_STATES or not c.get("family"):
             errors.append("Invalid coverage item")
@@ -404,6 +437,20 @@ def validate(data: dict, *, allow_fixture=False, at=None) -> tuple[list[str], li
         warnings.append("Fewer than five successfully accessed discovery-source families")
     if len({p.get("category") for p in data["projects"] if isinstance(p, dict)}) < 5:
         warnings.append("Fewer than five project categories verified")
+    return errors, warnings, decisions
+
+
+def validate(data: dict, *, allow_fixture=False, at=None, ttl_hours=24, workspace=None):
+    if workspace is not None:
+        with connect(workspace) as con:
+            locked_policy(workspace, con)
+            run_id = data.get("run_id", "") if isinstance(data, dict) else ""
+            policy = runtime_policy.for_run(workspace, con, run_id) if isinstance(run_id, str) else runtime_policy.resolve(workspace)
+            ttl_hours = policy["dynamic_ttl_hours"]
+    errors, warnings, _ = evaluate(data, allow_fixture=allow_fixture, at=at, ttl_hours=ttl_hours)
+    if not errors and workspace is not None and not allow_fixture:
+        import provenance
+        errors.extend(provenance.verify(workspace, data))
     return errors, warnings
 
 
@@ -425,6 +472,8 @@ def star_change(previous, current):
 
 def render(data, manifest, deltas):
     evidence = {e["id"]: e for e in data["evidence"]}
+    evaluation = manifest["evaluation"]
+    decisions = {(item["project_id"], item["number"]): item for item in evaluation["decisions"]}
     refnumbers = {eid: i + 1 for i, eid in enumerate(evidence)}
     def refs(ids):
         return " ".join("[E" + str(refnumbers[i]) + "](" + evidence[i]["url"] + ")" for i in ids if i in evidence)
@@ -432,6 +481,7 @@ def render(data, manifest, deltas):
                  "in_progress": "有人推进，暂不重复认领", "excluded": "已排除"}
     lines = ["# 开源项目雷达｜" + data["report_date"], "",
              "运行编号：`" + data["run_id"] + "`；生成时间：" + md(data["generated_at"]),
+             "统一判定时间：" + md(evaluation["evaluated_at"]) + "；规则版本：" + md(evaluation["rules_version"]),
              "报告时区：" + md(data["report_timezone"]) + "（偏移 " + md(data["utc_offset"]) + "）", "",
              "**本报告是只读调研：未安装、运行、fork、评论、认领、提交代码或创建 PR。**", ""]
     if manifest["fixture"]:
@@ -457,10 +507,12 @@ def render(data, manifest, deltas):
     lines += ["## 贡献机会核验", ""]
     for p in data["projects"]:
         for o in p["opportunities"]:
-            gate, reasons = opportunity_gate(p, o, evidence, parsed_time(data["generated_at"]))
+            decision = decisions[(p["project_id"], o["number"])]
+            gate, reasons = decision["status"], decision["reasons"]
             lines += ["### " + md(p["name"]) + " #" + str(o["number"]) + "｜" + status_cn[gate], "",
                       "[" + md(o["title"]) + "](" + o["url"] + ") " + refs(o["evidence_ids"]),
-                      "核验：" + md(o["checked_at"]) + "；AI 政策：" + md(o["ai_policy"]) + "；技能匹配：" + md(o["skill_match"]),
+                      "上次观测：" + md(o["checked_at"]) + "；当时issue状态：" + md(o["state"]) +
+                      "；AI 政策：" + md(o["ai_policy"]) + "；技能匹配：" + md(o["skill_match"]),
                       "判定：" + md("；".join(reasons)),
                       "任务：" + md(o["task"]), "第一步（只读）：" + md(o["first_step"]),
                       "完成/验收标准：" + md(o["acceptance"]),
@@ -494,7 +546,14 @@ def export_run(workspace: Path, run_id: str):
     out = workspace / "reports" / run_id
     out.mkdir(parents=True, exist_ok=True)
     atomic_text(out / "daily.md", row[0])
-    atomic_text(out / "data.json", row[1] + "\n")
+    manifest = json.loads(row[2])
+    # Add a read-only decision projection; preserve legacy exports byte-for-byte.
+    if "evaluation" in manifest:
+        exported = json.loads(row[1])
+        exported["evaluation"] = manifest["evaluation"]
+        atomic_text(out / "data.json", dumps(exported) + "\n")
+    else:
+        atomic_text(out / "data.json", row[1] + "\n")
     atomic_text(out / "audit.json", row[2] + "\n")
     # The database is authoritative. latest.json is only a regenerable convenience pointer.
     if latest == run_id:
@@ -504,9 +563,10 @@ def export_run(workspace: Path, run_id: str):
 
 def publish(workspace: Path, draft: Path, *, allow_fixture=False):
     data = load(draft)
-    errors, warnings = validate(data, allow_fixture=allow_fixture)
-    if errors:
-        raise ValueError("Validation failed:\n" + "\n".join(errors))
+    if not isinstance(data, dict) or not isinstance(data.get("run_id"), str):
+        raise ValueError("Validation failed:\n$.run_id: expected string in a draft object")
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", data["run_id"]):
+        raise ValueError("Validation failed:\n$.run_id: invalid run identity")
     serialized = dumps(data)
     with connect(workspace) as con:
         locked_policy(workspace, con)
@@ -517,7 +577,18 @@ def publish(workspace: Path, draft: Path, *, allow_fixture=False):
         if r["phase"] == "published":
             if r["payload"] != serialized:
                 raise ValueError("Immutable published run; start a new revision instead")
+            if r["fixture"] and not allow_fixture:
+                raise ValueError("Synthetic fixture cannot be published as a real project")
             return {"status": "already_published", "report": export_run(workspace, data["run_id"])}
+        evaluated_at = now()
+        policy = runtime_policy.for_run(workspace, con, data["run_id"])
+        errors, warnings, decisions = evaluate(data, allow_fixture=allow_fixture, at=evaluated_at,
+                                                ttl_hours=policy["dynamic_ttl_hours"])
+        if not errors and not allow_fixture:
+            import provenance
+            errors.extend(provenance.verify(workspace, data))
+        if errors:
+            raise ValueError("Validation failed:\n" + "\n".join(errors))
         if r["report_date"] != data["report_date"]:
             raise ValueError("report_date differs from start record")
         for e in data["evidence"]:
@@ -561,18 +632,18 @@ def publish(workspace: Path, draft: Path, *, allow_fixture=False):
             con.execute("INSERT INTO projects VALUES(?,?,?,?) ON CONFLICT(project_id) DO UPDATE SET last_seen=excluded.last_seen,current_payload=excluded.current_payload",
                         (p["project_id"], data["generated_at"], data["generated_at"], dumps(stored)))
             con.execute("INSERT INTO observations VALUES(?,?,?,?)", (data["run_id"], p["project_id"], p["checked_at"], dumps(p)))
-        evidence = {e["id"]: e for e in data["evidence"]}
         issue_count = sum(len(p["opportunities"]) for p in data["projects"])
-        candidate_count = sum(opportunity_gate(p, o, evidence)[0] == "candidate_for_review"
-                              for p in data["projects"] for o in p["opportunities"])
+        candidate_count = sum(item["status"] == "candidate_for_review" for item in decisions)
         manifest = {"version": VERSION, "projects": len(data["projects"]),
+                    "evaluation": {"evaluated_at": evaluated_at.isoformat(), "rules_version": RULES_VERSION,
+                                   "effective_policy": policy, "decisions": decisions},
                     "open_source": sum(p["license_status"] == "open_source_verified" for p in data["projects"]),
                     "issues": issue_count, "actionable": candidate_count, "changes": changes, "warnings": warnings,
                     "fixture": any(p.get("synthetic") is True for p in data["projects"]),
                     "verification_boundary": "structural and provenance checks, not semantic truth certification"}
         report = render(data, manifest, deltas)
         con.execute("UPDATE runs SET updated_at=?,phase='published',payload=?,manifest=?,report=?,fixture=? WHERE run_id=?",
-                    (stamp(), serialized, dumps(manifest), report, int(manifest["fixture"]), data["run_id"]))
+                    (evaluated_at.isoformat(), serialized, dumps(manifest), report, int(manifest["fixture"]), data["run_id"]))
     # If interrupted here, export reconstructs all files from the committed database.
     report_path = export_run(workspace, data["run_id"])
     return {"status": "published", "report": report_path, "warnings": warnings,
@@ -582,16 +653,18 @@ def publish(workspace: Path, draft: Path, *, allow_fixture=False):
 def context(workspace: Path, limit=20):
     with connect(workspace) as con:
         locked_policy(workspace, con)
+        policy = runtime_policy.resolve(workspace)
+        context_limit = policy["context_chars_max"]
         runs = [dict(r) for r in con.execute("SELECT run_id,report_date,phase,updated_at FROM runs ORDER BY updated_at DESC LIMIT 3")]
         records = con.execute("SELECT project_id,last_seen,current_payload FROM projects ORDER BY last_seen DESC LIMIT ?", (min(limit, 50),)).fetchall()
         projects = []
         for row in records:
             p = json.loads(row["current_payload"])
             projects.append({"id": row["project_id"], "name": p["name"], "last_seen": row["last_seen"],
-                             "checked_at": p["checked_at"], "stale_now": not fresh(p["checked_at"]),
+                             "checked_at": p["checked_at"], "stale_now": not fresh(p["checked_at"], policy["dynamic_ttl_hours"]),
                              "category": p["category"], "url": p["canonical_url"],
                              "tracked_issues": [{"number": o["number"], "state_last_observed": o["state"],
-                                                 "checked_at": o["checked_at"], "stale_now": not fresh(o["checked_at"])}
+                                                 "checked_at": o["checked_at"], "stale_now": not fresh(o["checked_at"], policy["dynamic_ttl_hours"])}
                                                 for o in p.get("opportunities", [])[-5:]]})
         feedback = [dict(r) for r in con.execute("SELECT * FROM feedback ORDER BY feedback_id DESC LIMIT 10")]
         for item in feedback:
@@ -601,10 +674,14 @@ def context(workspace: Path, limit=20):
               "recent_runs": runs, "recent_projects": projects, "explicit_user_feedback": feedback,
               "read_policy_from": [str(workspace / n) for n in ("mission.md", "profile.json", "config.json")]}
     # Decrease the batch if the serialized handoff would grow too large.
-    while len(dumps(result)) > 14000 and result["recent_projects"]:
+    while len(dumps(result)) > context_limit and result["recent_projects"]:
         result["recent_projects"].pop()
-    while len(dumps(result)) > 14000 and result["explicit_user_feedback"]:
+    while len(dumps(result)) > context_limit and result["explicit_user_feedback"]:
         result["explicit_user_feedback"].pop()
+    while len(dumps(result)) > context_limit and result["recent_runs"]:
+        result["recent_runs"].pop()
+    if len(dumps(result)) > context_limit:
+        raise ValueError("Context metadata exceeds configured limit")
     return result
 
 
@@ -639,6 +716,9 @@ def feedback(workspace, project_id, event, note, quote):
 
 
 def main():
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workspace", type=Path, default=Path.cwd())
     sub = parser.add_subparsers(dest="command", required=True)
@@ -663,7 +743,7 @@ def main():
         elif args.command == "context": result = context(workspace, args.limit)
         elif args.command == "query": result = query(workspace, args.project_id)
         elif args.command == "validate":
-            errors, warnings = validate(load(args.draft))
+            errors, warnings = validate(load(args.draft), workspace=workspace)
             result = {"valid": not errors, "errors": errors, "warnings": warnings}
             print(dumps(result)); return 1 if errors else 0
         elif args.command == "publish": result = publish(workspace, args.draft)

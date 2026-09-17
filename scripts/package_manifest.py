@@ -5,6 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 import subprocess
+from radar import VERSION
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "PACKAGE_MANIFEST.json"
@@ -38,7 +39,7 @@ def main():
         ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"], cwd=ROOT
     ).decode("utf-8").split("\0")
     files = [record(path) for path in sorted(set(paths)) if path and path != MANIFEST.name]
-    data = {"package": "open-source-radar", "version": "1.0.0", "files": files}
+    data = {"package": "open-source-radar", "version": VERSION, "files": files}
     MANIFEST.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
     print(f"Manifest generated: {len(files)} files")
     return 0

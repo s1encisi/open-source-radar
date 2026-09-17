@@ -40,7 +40,7 @@ class SafeRedirect(HTTPRedirectHandler):
 
 
 class Client:
-    def __init__(self, token=None, budget=30, timeout=20):
+    def __init__(self, token=None, budget=30, timeout=20, before_request=None, after_response=None):
         self.token = token
         self.budget = budget
         self.timeout = timeout
@@ -49,12 +49,19 @@ class Client:
         self.responses = []
         self.rate_limited = False
         self.last_request = 0.0
+        self.before_request = before_request
+        self.after_response = after_response
 
     def get(self, path):
         url = checked_api_url(path if path.startswith("https:") else API + path)
         if self.requests >= self.budget or self.rate_limited:
             item = {"url": url, "observed_at": timestamp(), "status": "deferred",
                     "reason": "request budget exhausted or rate limited", "data": None}
+            self.responses.append(item)
+            return item
+        if self.before_request is not None and not self.before_request(url):
+            item = {"url": url, "observed_at": timestamp(), "status": "deferred",
+                    "reason": "persistent run request budget exhausted", "data": None}
             self.responses.append(item)
             return item
         # Conservative serial spacing; search has a separate stricter rate bucket.
@@ -96,7 +103,10 @@ class Client:
         except (URLError, ValueError, TimeoutError, OSError) as exc:
             item = {"url": url, "observed_at": timestamp(), "status": "error",
                     "reason": type(exc).__name__, "data": None}
+        item.setdefault("latency_ms", round((time.monotonic() - start) * 1000, 1))
         self.responses.append(item)
+        if self.after_response is not None:
+            self.after_response(item)
         return item
 
     def pages(self, path, max_pages=3):
@@ -183,7 +193,54 @@ def search(client, query, kind, page):
             "warning": "This page is a candidate sample, not a full census; split by topic/date/language when capped."}
 
 
+def collection_completeness(result, responses):
+    """Aggregate collector flags without treating raw remote fields as flags."""
+    reasons = []
+
+    def add(path, reason):
+        reasons.append({"path": path, "reason": reason})
+
+    def visit(value, path):
+        if isinstance(value, list):
+            for index, item in enumerate(value):
+                visit(item, f"{path}[{index}]")
+        elif isinstance(value, dict):
+            if value.get("complete") is False:
+                add(path, value.get("reason", "incomplete_collection"))
+            if value.get("partial") is True:
+                add(path, "partial_collection")
+            if value.get("decode_error") is True:
+                add(path, "decode_error")
+            for key, item in value.items():
+                if key.endswith("_truncated") and item is True:
+                    add(path + "." + key, "truncated")
+                # data/items are raw remote content; do not recursively interpret them.
+                if key not in {"data", "items"}:
+                    visit(item, path + "." + key)
+            body = value.get("data")
+            if "status" in value and isinstance(body, dict) and "items" in body:
+                if body.get("incomplete_results") is True:
+                    add(path, "search_incomplete")
+                count, found = body.get("total_count"), body.get("items")
+                if type(count) is not int or not isinstance(found, list):
+                    add(path, "search_shape_invalid")
+                elif count > len(found):
+                    add(path, "search_page_incomplete")
+
+    visit(result, "result")
+    failed = 0
+    for index, response in enumerate(responses):
+        if response.get("status") != 200:
+            failed += 1
+            add(f"responses[{index}]", "http_error_or_deferred")
+    return {"transport_complete": failed == 0, "partial": bool(reasons),
+            "incomplete_reasons": reasons, "non_200": failed}
+
+
 def main():
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--budget", type=int, default=30)
@@ -213,18 +270,18 @@ def main():
         else:
             # Force public-only discovery even for authenticated accounts.
             result = search(client, args.query + " is:public", args.kind, args.page)
+        completeness = collection_completeness(result, client.responses)
         payload = {"observed_at": timestamp(), "untrusted_external_content": True,
                    "api_version": API_VERSION, "requests": client.requests,
                    "elapsed_seconds": round(time.monotonic() - started, 2),
                    "rate_limited": client.rate_limited, "result": result,
-                   "responses": client.responses}
+                   "responses": client.responses, **completeness}
         args.output.parent.mkdir(parents=True, exist_ok=True)
         with args.output.open("x", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2)
-        failed = sum(r["status"] != 200 for r in client.responses)
-        print(json.dumps({"saved": str(args.output), "requests": client.requests, "non_200": failed,
-                          "partial": bool(failed), "rate_limited": client.rate_limited}, ensure_ascii=False))
-        return 0 if not failed else 1
+        print(json.dumps({"saved": str(args.output), "requests": client.requests,
+                          "rate_limited": client.rate_limited, **completeness}, ensure_ascii=False))
+        return 1 if completeness["partial"] else 0
     except (ValueError, OSError) as exc:
         print(json.dumps({"error": str(exc), "requests": client.requests}, ensure_ascii=False), file=sys.stderr)
         return 2
